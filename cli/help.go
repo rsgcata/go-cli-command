@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"strings"
@@ -19,11 +20,11 @@ func (c *HelpCommand) Description() string {
 	return "Lists all available commands"
 }
 
-func (c *HelpCommand) InputDefinition() InputOptionDefinitionMap {
-	return InputOptionDefinitionMap{}
+func (c *HelpCommand) FlagDefinitions() FlagDefinitionMap {
+	return FlagDefinitionMap{}
 }
 
-func (c *HelpCommand) Exec(_ InputOptionsMap, baseWriter io.Writer) error {
+func (c *HelpCommand) Exec(_ *flag.FlagSet, baseWriter io.Writer) error {
 	writer := tabwriter.NewWriter(baseWriter, 0, 0, 1, ' ', 0)
 	_, _ = fmt.Fprintln(writer, c.Id()+"\tAvailable CLI Commands:")
 
@@ -38,9 +39,9 @@ func (c *HelpCommand) Exec(_ InputOptionsMap, baseWriter io.Writer) error {
 			}
 		}
 
-		if len(command.InputDefinition()) > 0 {
+		if len(command.FlagDefinitions()) > 0 {
 			_, _ = fmt.Fprintln(writer, "\tOptions:")
-			for _, def := range command.InputDefinition() {
+			for _, def := range command.FlagDefinitions() {
 				_, _ = fmt.Fprintf(
 					writer,
 					"\t--%s %s (default %s)\n",

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"flag"
 	"github.com/stretchr/testify/suite"
 	"io"
 	"testing"
@@ -79,7 +80,7 @@ func (s *HelpSuite) TestChunkDescriptionSplitsStringBasedOnProvidedSize() {
 type mockCommand struct {
 	id          string
 	description string
-	inputDef    InputOptionDefinitionMap
+	flagDefs    FlagDefinitionMap
 }
 
 func (m *mockCommand) Id() string {
@@ -90,11 +91,11 @@ func (m *mockCommand) Description() string {
 	return m.description
 }
 
-func (m *mockCommand) InputDefinition() InputOptionDefinitionMap {
-	return m.inputDef
+func (m *mockCommand) FlagDefinitions() FlagDefinitionMap {
+	return m.flagDefs
 }
 
-func (m *mockCommand) Exec(_ InputOptionsMap, _ io.Writer) error {
+func (m *mockCommand) Exec(_ *flag.FlagSet, _ io.Writer) error {
 	return nil
 }
 
@@ -115,7 +116,7 @@ func (s *HelpSuite) TestHelpCommandExecutionCanShowAvailableCommandsInfo() {
 				&mockCommand{
 					id:          "test",
 					description: "Test command",
-					inputDef:    InputOptionDefinitionMap{},
+					flagDefs:    FlagDefinitionMap{},
 				},
 			},
 			contentChecks: []string{
@@ -130,7 +131,7 @@ func (s *HelpSuite) TestHelpCommandExecutionCanShowAvailableCommandsInfo() {
 				&mockCommand{
 					id:          "test",
 					description: "Test command",
-					inputDef: InputOptionDefinitionMap{
+					flagDefs: FlagDefinitionMap{
 						"option1": {
 							name:        "option1",
 							description: "First option",
@@ -157,7 +158,8 @@ func (s *HelpSuite) TestHelpCommandExecutionCanShowAvailableCommandsInfo() {
 				}
 
 				var buf bytes.Buffer
-				err := cmd.Exec(InputOptionsMap{}, &buf)
+				flagSet := flag.NewFlagSet("help", flag.ContinueOnError)
+				err := cmd.Exec(flagSet, &buf)
 				s.NoError(err, "HelpCommand.Exec() should not return an error")
 
 				output := buf.String()

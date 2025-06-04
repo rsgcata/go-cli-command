@@ -2,8 +2,8 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"fmt"
-	"github.com/rsgcata/go-params/params"
 	"io"
 	"maps"
 	"os"
@@ -15,104 +15,115 @@ import (
 const StatusOk = 0
 const StatusErr = 1
 
-type InputOptionDefinition struct {
+// FlagDefinition represents a command-line flag definition
+type FlagDefinition struct {
 	name        string
 	description string
 	required    bool
 	defaultVal  string
+	setupFlag   func(*flag.FlagSet)
 }
 
-func (def InputOptionDefinition) Name() string {
+func NewFlagDefinition(
+	name string,
+	description string,
+	required bool,
+	defaultVal string,
+	setupFlag func(*flag.FlagSet),
+) FlagDefinition {
+	return FlagDefinition{name, description, required, defaultVal, setupFlag}
+}
+
+// Name returns the name of the flag
+func (def FlagDefinition) Name() string {
 	return def.name
 }
 
-func (def InputOptionDefinition) Description() string {
+// Description returns the description of the flag
+func (def FlagDefinition) Description() string {
 	return def.description
 }
 
-func (def InputOptionDefinition) Required() bool {
+// Required returns whether the flag is required
+func (def FlagDefinition) Required() bool {
 	return def.required
 }
 
-func (def InputOptionDefinition) DefaultValue() string {
+// DefaultValue returns the default value of the flag
+func (def FlagDefinition) DefaultValue() string {
 	return def.defaultVal
 }
 
-type InputOption struct {
-	InputOptionDefinition
-	rawVal string
-}
+// FlagDefinitionMap is a map of flag names to their definitions
+type FlagDefinitionMap map[string]FlagDefinition
 
-func (opt InputOption) RawVal() params.RawVal {
-	return params.RawVal(opt.rawVal)
-}
-
-type InputOptionDefinitionMap map[string]InputOptionDefinition
-type InputOptionsMap map[string]InputOption
-
+// Command interface defines the methods that a command must implement
 type Command interface {
 	Id() string
 	Description() string
-	Exec(options InputOptionsMap, stdWriter io.Writer) error
-	InputDefinition() InputOptionDefinitionMap
+	Exec(flagSet *flag.FlagSet, stdWriter io.Writer) error
+	FlagDefinitions() FlagDefinitionMap
 }
 
-func BuildOptionsFrom(
-	rawOptions []string,
-	cmd Command,
-) (InputOptionsMap, []error) {
-	options := InputOptionsMap{}
-	var optionErrors []error
-	for _, arg := range rawOptions {
-		if !strings.HasPrefix(arg, "--") {
-			continue
-		}
-		parts := strings.SplitN(strings.TrimLeft(arg, "--"), "=", 2)
-		if len(parts) < 1 {
-			continue
-		}
+// setupFlagSet creates and configures a flag.FlagSet for the given command
+func setupFlagSet(cmd Command, outputWriter io.Writer) *flag.FlagSet {
+	flagSet := flag.NewFlagSet(cmd.Id(), flag.ContinueOnError)
+	flagSet.Usage = func() {
+		_, _ = fmt.Fprintf(outputWriter, "Usage of %s:\n", cmd.Id())
+		flagSet.PrintDefaults()
+	}
 
-		optionName := strings.TrimSpace(parts[0])
-		if _, exists := options[optionName]; exists {
-			optionErrors = append(
-				optionErrors,
-				fmt.Errorf("option '%s' is defined twice", optionName),
-			)
-		}
+	// Add flags based on command's flag definitions
+	for _, def := range cmd.FlagDefinitions() {
+		def.setupFlag(flagSet)
+	}
 
-		optionValue := ""
-		if len(parts) == 2 {
-			optionValue = strings.TrimSpace(parts[1])
-		}
+	return flagSet
+}
 
-		options[optionName] = InputOption{
-			InputOptionDefinition: cmd.InputDefinition()[optionName],
-			rawVal:                optionValue,
+// validateFlags checks if all required flags are provided
+func validateFlags(flagSet *flag.FlagSet, cmd Command) []error {
+	var flagErrors []error
+
+	// Check for required flags
+	for _, def := range cmd.FlagDefinitions() {
+		if def.required {
+			lookup := flagSet.Lookup(def.name)
+			if lookup == nil || lookup.Value.String() == "" {
+				flagErrors = append(
+					flagErrors,
+					fmt.Errorf("flag '%s' is required", def.name),
+				)
+			}
 		}
 	}
 
-	for _, optionDef := range cmd.InputDefinition() {
-		option, optionSet := options[optionDef.name]
-		if optionDef.required && (!optionSet || option.rawVal == "") {
-			optionErrors = append(
-				optionErrors,
-				fmt.Errorf("option '%s' is required", optionDef.name),
-			)
-		}
-	}
-
-	return options, optionErrors
+	return flagErrors
 }
 
-func runCommand(cmd Command, rawOptions []string, outputWriter io.Writer) (cmdErr error) {
+// runCommand runs the given command with the provided arguments
+func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			cmdErr = err.(error)
 		}
 	}()
 
-	optionsMap, errs := BuildOptionsFrom(rawOptions, cmd)
-	if len(errs) > 0 {
+	// Setup flag set for the command
+	flagSet := setupFlagSet(cmd, outputWriter)
+	flagSet.SetOutput(outputWriter)
+
+	// Parse flags
+	if err := flagSet.Parse(args); err != nil {
+		return fmt.Errorf(
+			"Failed to execute command %s with error: %s\n",
+			cmd.Id(),
+			err.Error(),
+		)
+	}
+
+	// Validate required flags
+	if errs := validateFlags(flagSet, cmd); len(errs) > 0 {
 		return fmt.Errorf(
 			"Failed to execute command %s with error: %s\n",
 			cmd.Id(),
@@ -120,7 +131,8 @@ func runCommand(cmd Command, rawOptions []string, outputWriter io.Writer) (cmdEr
 		)
 	}
 
-	if cmdErr = cmd.Exec(optionsMap, outputWriter); cmdErr != nil {
+	// Execute the command
+	if cmdErr = cmd.Exec(flagSet, outputWriter); cmdErr != nil {
 		return fmt.Errorf(
 			"Failed to execute command %s with error: %s\n",
 			cmd.Id(),
@@ -131,7 +143,8 @@ func runCommand(cmd Command, rawOptions []string, outputWriter io.Writer) (cmdEr
 	return cmdErr
 }
 
-func parseCmdInput(args []string) (cmdName string, rawOptions []string) {
+// parseCmdInput parses the command name and arguments from the input args
+func parseCmdInput(args []string) (cmdName string, cmdArgs []string) {
 	if len(args) > 1 {
 		if args[0] == "--" {
 			args = args[1:]
@@ -140,16 +153,18 @@ func parseCmdInput(args []string) (cmdName string, rawOptions []string) {
 
 	if len(args) != 0 {
 		cmdName = strings.TrimSpace(args[0])
-		rawOptions = args[1:]
+		cmdArgs = args[1:]
 	}
 
 	return
 }
 
+// CommandsRegistry holds all registered commands
 type CommandsRegistry struct {
 	commands map[string]Command
 }
 
+// Register adds a command to the registry
 func (registry *CommandsRegistry) Register(cmd Command) error {
 	if _, exists := registry.commands[cmd.Id()]; exists {
 		return fmt.Errorf("command '%s' is already registered", cmd.Id())
@@ -158,6 +173,7 @@ func (registry *CommandsRegistry) Register(cmd Command) error {
 	return nil
 }
 
+// Commands returns a copy of all registered commands
 func (registry *CommandsRegistry) Commands() map[string]Command {
 	cmdCopy := make(map[string]Command, len(registry.commands))
 	for name, cmd := range registry.commands {
@@ -166,6 +182,7 @@ func (registry *CommandsRegistry) Commands() map[string]Command {
 	return cmdCopy
 }
 
+// Command returns a command by its ID
 func (registry *CommandsRegistry) Command(id string) (Command, bool) {
 	cmd, ok := registry.commands[id]
 	return cmd, ok
@@ -191,7 +208,7 @@ func Bootstrap(
 	_ = availableCommands.Register(
 		&HelpCommand{slices.Collect(maps.Values(availableCommands.Commands()))},
 	)
-	cmdId, rawOptions := parseCmdInput(args)
+	cmdId, cmdArgs := parseCmdInput(args)
 	if cmdId == "" {
 		cmdId = (&HelpCommand{}).Id()
 	}
@@ -201,7 +218,7 @@ func Bootstrap(
 	if !exists {
 		cmdErr = fmt.Errorf("The command %s does not exist\n", cmdId)
 	} else {
-		cmdErr = runCommand(cmd, rawOptions, outputWriter)
+		cmdErr = runCommand(cmd, cmdArgs, outputWriter)
 	}
 
 	if cmdErr != nil {

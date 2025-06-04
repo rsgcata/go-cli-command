@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"github.com/stretchr/testify/suite"
 	"io"
 	"testing"
@@ -20,8 +21,8 @@ func TestBootstrapSuite(t *testing.T) {
 type bootstrapMockCommand struct {
 	id          string
 	description string
-	inputDef    InputOptionDefinitionMap
-	execFunc    func(options InputOptionsMap, writer io.Writer) error
+	flagDefs    FlagDefinitionMap
+	execFunc    func(flagSet *flag.FlagSet, writer io.Writer) error
 }
 
 func (m *bootstrapMockCommand) Id() string {
@@ -32,179 +33,150 @@ func (m *bootstrapMockCommand) Description() string {
 	return m.description
 }
 
-func (m *bootstrapMockCommand) InputDefinition() InputOptionDefinitionMap {
-	return m.inputDef
+func (m *bootstrapMockCommand) FlagDefinitions() FlagDefinitionMap {
+	return m.flagDefs
 }
 
-func (m *bootstrapMockCommand) Exec(options InputOptionsMap, writer io.Writer) error {
+func (m *bootstrapMockCommand) Exec(flagSet *flag.FlagSet, writer io.Writer) error {
 	if m.execFunc != nil {
-		return m.execFunc(options, writer)
+		return m.execFunc(flagSet, writer)
 	}
 	return nil
 }
 
-func (s *BootstrapSuite) TestItCanBuildOptionsFromRawOptions() {
+func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 	tests := []struct {
-		name        string
-		rawOptions  []string
-		cmd         Command
-		wantOptions InputOptionsMap
-		wantErrors  bool
+		name       string
+		args       []string
+		cmd        Command
+		wantErrors bool
 	}{
 		{
-			name:       "Empty options",
-			rawOptions: []string{},
+			name: "Empty options",
+			args: []string{},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
+				flagDefs:    FlagDefinitionMap{},
 			},
-			wantOptions: InputOptionsMap{},
-			wantErrors:  false,
+			wantErrors: false,
 		},
 		{
-			name:       "Valid option",
-			rawOptions: []string{"--option1=value1"},
+			name: "Valid option",
+			args: []string{"--option1", "value1"},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"option1": {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
+						defaultVal:  "",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.String(
+								"option1",
+								"",
+								"Option 1",
+							)
+						},
 					},
-				},
-			},
-			wantOptions: InputOptionsMap{
-				"option1": {
-					InputOptionDefinition: InputOptionDefinition{
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-					},
-					rawVal: "value1",
 				},
 			},
 			wantErrors: false,
 		},
 		{
-			name:       "Option without value",
-			rawOptions: []string{"--option1"},
+			name: "Option without value",
+			args: []string{"--option1"},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"option1": {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
+						defaultVal:  "false",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.Bool(
+								"option1",
+								false,
+								"Option 1",
+							)
+						},
 					},
-				},
-			},
-			wantOptions: InputOptionsMap{
-				"option1": {
-					InputOptionDefinition: InputOptionDefinition{
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-					},
-					rawVal: "",
 				},
 			},
 			wantErrors: false,
 		},
 		{
-			name:       "Missing required option",
-			rawOptions: []string{},
+			name: "Missing required option",
+			args: []string{},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"option1": {
 						name:        "option1",
 						description: "Option 1",
 						required:    true,
+						defaultVal:  "",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.String(
+								"option1",
+								"",
+								"Option 1",
+							)
+						},
 					},
-				},
-			},
-			wantOptions: InputOptionsMap{},
-			wantErrors:  true,
-		},
-		{
-			name:       "Required option with empty value",
-			rawOptions: []string{"--option1="},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    true,
-					},
-				},
-			},
-			wantOptions: InputOptionsMap{
-				"option1": {
-					InputOptionDefinition: InputOptionDefinition{
-						name:        "option1",
-						description: "Option 1",
-						required:    true,
-					},
-					rawVal: "",
 				},
 			},
 			wantErrors: true,
 		},
 		{
-			name:       "Duplicate option",
-			rawOptions: []string{"--option1=value1", "--option1=value2"},
+			name: "Required option with value",
+			args: []string{"--option1", "value1"},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"option1": {
 						name:        "option1",
 						description: "Option 1",
-						required:    false,
+						required:    true,
+						defaultVal:  "",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.String(
+								"option1",
+								"",
+								"Option 1",
+							)
+						},
 					},
 				},
 			},
-			wantOptions: InputOptionsMap{
-				"option1": {
-					InputOptionDefinition: InputOptionDefinition{
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-					},
-					rawVal: "value2",
-				},
-			},
-			wantErrors: true,
+			wantErrors: false,
 		},
 		{
-			name:       "Non-option argument",
-			rawOptions: []string{"positional", "--option1=value1"},
+			name: "Non-option argument",
+			args: []string{"positional", "--option1", "value1"},
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"option1": {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
+						defaultVal:  "",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.String(
+								"option1",
+								"",
+								"Option 1",
+							)
+						},
 					},
-				},
-			},
-			wantOptions: InputOptionsMap{
-				"option1": {
-					InputOptionDefinition: InputOptionDefinition{
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-					},
-					rawVal: "value1",
 				},
 			},
 			wantErrors: false,
@@ -214,29 +186,35 @@ func (s *BootstrapSuite) TestItCanBuildOptionsFromRawOptions() {
 	for _, scenario := range tests {
 		s.Run(
 			scenario.name, func() {
-				options, errs := BuildOptionsFrom(scenario.rawOptions, scenario.cmd)
+				// Setup flag set
+				var buf bytes.Buffer
+				flagSet := setupFlagSet(scenario.cmd, &buf)
+
+				// Parse flags
+				err := flagSet.Parse(scenario.args)
+				s.NoError(err, "flagSet.Parse() should not return an error")
+
+				// Validate flags
+				errs := validateFlags(flagSet, scenario.cmd)
 
 				if scenario.wantErrors {
-					s.NotEmpty(errs, "BuildOptionsFrom() should return errors")
+					s.NotEmpty(errs, "validateFlags() should return errors")
 				} else {
-					s.Empty(errs, "BuildOptionsFrom() should not return errors")
+					s.Empty(errs, "validateFlags() should not return errors")
 				}
 
-				s.Equal(
-					len(scenario.wantOptions),
-					len(options),
-					"BuildOptionsFrom() returned incorrect number of options",
-				)
-
-				for name, wantOption := range scenario.wantOptions {
-					gotOption, exists := options[name]
-					s.True(exists, "BuildOptionsFrom() should return option %s", name)
-					s.Equal(
-						wantOption.rawVal,
-						gotOption.rawVal,
-						"BuildOptionsFrom() option %s has incorrect value",
-						name,
-					)
+				// Check if required flags have values
+				for _, def := range scenario.cmd.FlagDefinitions() {
+					if def.required {
+						lookup := flagSet.Lookup(def.name)
+						if lookup != nil && lookup.Value.String() != "" {
+							s.NotEqual(
+								"",
+								lookup.Value.String(),
+								"Required flag should have a value",
+							)
+						}
+					}
 				}
 			},
 		)
@@ -378,7 +356,7 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 	tests := []struct {
 		name           string
 		cmd            Command
-		rawOptions     []string
+		args           []string
 		setupCmd       func(cmd *bootstrapMockCommand)
 		expectedOutput string
 		expectError    bool
@@ -389,11 +367,11 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
+				flagDefs:    FlagDefinitionMap{},
 			},
-			rawOptions: []string{},
+			args: []string{},
 			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(options InputOptionsMap, writer io.Writer) error {
+				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
 					_, _ = writer.Write([]byte("Command executed successfully"))
 					return nil
 				}
@@ -406,15 +384,23 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef: InputOptionDefinitionMap{
+				flagDefs: FlagDefinitionMap{
 					"required": {
 						name:        "required",
 						description: "Required option",
 						required:    true,
+						defaultVal:  "",
+						setupFlag: func(fs *flag.FlagSet) {
+							fs.String(
+								"required",
+								"",
+								"Required option",
+							)
+						},
 					},
 				},
 			},
-			rawOptions:     []string{},
+			args:           []string{},
 			expectedOutput: "",
 			expectError:    true,
 			errorContains:  []string{"Failed to execute command", "required"},
@@ -424,11 +410,11 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
+				flagDefs:    FlagDefinitionMap{},
 			},
-			rawOptions: []string{},
+			args: []string{},
 			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(options InputOptionsMap, writer io.Writer) error {
+				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
 					return errors.New("command error")
 				}
 			},
@@ -441,11 +427,11 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 			cmd: &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
+				flagDefs:    FlagDefinitionMap{},
 			},
-			rawOptions: []string{},
+			args: []string{},
 			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(options InputOptionsMap, writer io.Writer) error {
+				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
 					panic(errors.New("panic error"))
 				}
 			},
@@ -465,7 +451,7 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 
 				// Create a buffer to capture output
 				var buf bytes.Buffer
-				err := runCommand(scenario.cmd, scenario.rawOptions, &buf)
+				err := runCommand(scenario.cmd, scenario.args, &buf)
 
 				// Check if error is expected
 				if scenario.expectError {
@@ -500,8 +486,8 @@ func (s *BootstrapSuite) TestItCanBootstrapCliRunner() {
 			cmd := &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
-				execFunc: func(options InputOptionsMap, writer io.Writer) error {
+				flagDefs:    FlagDefinitionMap{},
+				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
 					_, _ = writer.Write([]byte("Command executed successfully"))
 					return nil
 				},
@@ -564,8 +550,8 @@ func (s *BootstrapSuite) TestItCanBootstrapCliRunner() {
 			cmd := &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
-				execFunc: func(options InputOptionsMap, writer io.Writer) error {
+				flagDefs:    FlagDefinitionMap{},
+				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
 					return errors.New("command execution error")
 				},
 			}
@@ -626,8 +612,8 @@ func (s *BootstrapSuite) TestItCanBootstrapCliRunner() {
 			cmd := &bootstrapMockCommand{
 				id:          "test",
 				description: "Test command",
-				inputDef:    InputOptionDefinitionMap{},
-				execFunc: func(options InputOptionsMap, writer io.Writer) error {
+				flagDefs:    FlagDefinitionMap{},
+				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
 					return nil
 				},
 			}

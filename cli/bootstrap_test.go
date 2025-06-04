@@ -72,7 +72,6 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
-						defaultVal:  "",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.String(
 								"option1",
@@ -96,7 +95,6 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
-						defaultVal:  "false",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.Bool(
 								"option1",
@@ -120,7 +118,6 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 						name:        "option1",
 						description: "Option 1",
 						required:    true,
-						defaultVal:  "",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.String(
 								"option1",
@@ -144,7 +141,6 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 						name:        "option1",
 						description: "Option 1",
 						required:    true,
-						defaultVal:  "",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.String(
 								"option1",
@@ -168,7 +164,6 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 						name:        "option1",
 						description: "Option 1",
 						required:    false,
-						defaultVal:  "",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.String(
 								"option1",
@@ -389,7 +384,6 @@ func (s *BootstrapSuite) TestItCanRunCommand() {
 						name:        "required",
 						description: "Required option",
 						required:    true,
-						defaultVal:  "",
 						setupFlag: func(fs *flag.FlagSet) {
 							fs.String(
 								"required",

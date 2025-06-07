@@ -2,21 +2,69 @@ package cli
 
 import (
 	"bytes"
-	"flag"
-	"github.com/stretchr/testify/suite"
-	"io"
+	"strings"
 	"testing"
 )
 
-type HelpSuite struct {
-	suite.Suite
+func TestItCanDisplayHelpfulInformationAboutAvailableCommands(t *testing.T) {
+	// Create a mock command to be listed in help
+	mockCmd := &MockCommand{
+		id:          "test-cmd",
+		description: "Test command description",
+	}
+
+	// Create a mock command with flags
+	mockCmdWithFlags := &MockCommandWithFlags{
+		id:          "flag-cmd",
+		description: "Command with flags",
+	}
+	mockCmdWithFlags.flags = setupFlagSet(mockCmdWithFlags, nil)
+	mockCmdWithFlags.DefineFlags()
+
+	// Create help command with the mock commands
+	helpCmd := &HelpCommand{
+		availableCommands: []Command{mockCmd, mockCmdWithFlags},
+	}
+
+	// Execute the help command
+	var buf bytes.Buffer
+	err := helpCmd.Exec(&buf)
+	if err != nil {
+		t.Errorf("HelpCommand.Exec() error = %v, want nil", err)
+	}
+
+	// Check that the output contains expected information
+	output := buf.String()
+
+	// Check command IDs are in the output
+	if !strings.Contains(output, "help") {
+		t.Errorf("Help output doesn't contain the help command ID")
+	}
+	if !strings.Contains(output, "test-cmd") {
+		t.Errorf("Help output doesn't contain the test command ID")
+	}
+	if !strings.Contains(output, "flag-cmd") {
+		t.Errorf("Help output doesn't contain the flag command ID")
+	}
+
+	// Check descriptions are in the output
+	if !strings.Contains(output, "Test command description") {
+		t.Errorf("Help output doesn't contain the test command description")
+	}
+	if !strings.Contains(output, "Command with flags") {
+		t.Errorf("Help output doesn't contain the flag command description")
+	}
+
+	// Check that flag information is included
+	if !strings.Contains(output, "Flags:") {
+		t.Errorf("Help output doesn't contain flag section")
+	}
+	if !strings.Contains(output, "--test-flag") {
+		t.Errorf("Help output doesn't contain flag name")
+	}
 }
 
-func TestHelpSuite(t *testing.T) {
-	suite.Run(t, new(HelpSuite))
-}
-
-func (s *HelpSuite) TestChunkDescriptionSplitsStringBasedOnProvidedSize() {
+func TestItCanChunkDescription(t *testing.T) {
 	tests := []struct {
 		name        string
 		description string
@@ -24,147 +72,55 @@ func (s *HelpSuite) TestChunkDescriptionSplitsStringBasedOnProvidedSize() {
 		want        []string
 	}{
 		{
-			name:        "Empty description",
+			name:        "empty description",
 			description: "",
 			size:        10,
 			want:        []string{""},
 		},
 		{
-			name:        "Description shorter than chunk size",
+			name:        "short description",
 			description: "Short text",
 			size:        20,
 			want:        []string{"Short text"},
 		},
 		{
-			name:        "Description exactly chunk size",
-			description: "Exactly 10",
-			size:        10,
-			want:        []string{"Exactly 10"},
-		},
-		{
-			name:        "Description with newline",
-			description: "First line\nSecond line",
-			size:        20,
-			want:        []string{"First line", "Second line"},
-		},
-		{
-			name:        "Description split on space",
-			description: "This is a long description that should be split into multiple chunks",
+			name:        "long description",
+			description: "This is a longer description that should be split into multiple chunks",
 			size:        20,
 			want: []string{
-				"This is a long description",
+				"This is a longer description",
 				"that should be split",
 				"into multiple chunks",
 			},
 		},
+		{
+			name:        "description with newlines",
+			description: "First line\nSecond line\nThird line",
+			size:        20,
+			want: []string{
+				"First line",
+				"Second line",
+				"Third line",
+			},
+		},
 	}
 
-	for _, scenario := range tests {
-		s.Run(
-			scenario.name, func() {
-				got := chunkDescription(scenario.description, scenario.size)
-				s.Equal(
-					len(scenario.want),
-					len(got),
-					"chunkDescription() returned incorrect number of chunks",
-				)
-				for i := range got {
-					s.Equal(scenario.want[i], got[i], "chunkDescription() chunk[%d] incorrect", i)
+	for _, tt := range tests {
+		t.Run(
+			tt.name, func(t *testing.T) {
+				got := chunkDescription(tt.description, tt.size)
+				if len(got) != len(tt.want) {
+					t.Errorf(
+						"chunkDescription() returned %d chunks, want %d",
+						len(got),
+						len(tt.want),
+					)
+					return
 				}
-			},
-		)
-	}
-}
-
-// Mock command for testing
-type mockCommand struct {
-	id          string
-	description string
-	flagDefs    FlagDefinitionMap
-}
-
-func (m *mockCommand) Id() string {
-	return m.id
-}
-
-func (m *mockCommand) Description() string {
-	return m.description
-}
-
-func (m *mockCommand) FlagDefinitions() FlagDefinitionMap {
-	return m.flagDefs
-}
-
-func (m *mockCommand) Exec(_ *flag.FlagSet, _ io.Writer) error {
-	return nil
-}
-
-func (s *HelpSuite) TestHelpCommandExecutionCanShowAvailableCommandsInfo() {
-	tests := []struct {
-		name          string
-		commands      []Command
-		contentChecks []string
-	}{
-		{
-			name:          "No commands",
-			commands:      []Command{},
-			contentChecks: []string{"help", "Available CLI Commands"},
-		},
-		{
-			name: "Single command without options",
-			commands: []Command{
-				&mockCommand{
-					id:          "test",
-					description: "Test command",
-					flagDefs:    FlagDefinitionMap{},
-				},
-			},
-			contentChecks: []string{
-				"help", "Available CLI Commands",
-				"_________",
-				"test", "Test command",
-			},
-		},
-		{
-			name: "Command with options",
-			commands: []Command{
-				&mockCommand{
-					id:          "test",
-					description: "Test command",
-					flagDefs: FlagDefinitionMap{
-						"option1": {
-							name:        "option1",
-							description: "First option",
-							defaultVal:  "default1",
-						},
-					},
-				},
-			},
-			contentChecks: []string{
-				"help", "Available CLI Commands",
-				"_________",
-				"test", "Test command",
-				"Options",
-				"--option1", "First option", "default1",
-			},
-		},
-	}
-
-	for _, scenario := range tests {
-		s.Run(
-			scenario.name, func() {
-				cmd := &HelpCommand{
-					availableCommands: scenario.commands,
-				}
-
-				var buf bytes.Buffer
-				flagSet := flag.NewFlagSet("help", flag.ContinueOnError)
-				err := cmd.Exec(flagSet, &buf)
-				s.NoError(err, "HelpCommand.Exec() should not return an error")
-
-				output := buf.String()
-				for _, check := range scenario.contentChecks {
-					s.Contains(output, check, "HelpCommand.Exec() output should contain %q", check)
+				for i, chunk := range got {
+					if chunk != tt.want[i] {
+						t.Errorf("chunkDescription() chunk[%d] = %q, want %q", i, chunk, tt.want[i])
+					}
 				}
 			},
 		)

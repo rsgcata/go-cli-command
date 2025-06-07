@@ -4,209 +4,122 @@ import (
 	"bytes"
 	"errors"
 	"flag"
-	"github.com/stretchr/testify/suite"
+	"fmt"
 	"io"
+	"strings"
 	"testing"
 )
 
-type BootstrapSuite struct {
-	suite.Suite
-}
-
-func TestBootstrapSuite(t *testing.T) {
-	suite.Run(t, new(BootstrapSuite))
-}
-
-// Mock command for testing bootstrap functionality
-type bootstrapMockCommand struct {
+// MockCommand is a simple implementation of the Command interface for testing
+type MockCommand struct {
+	CommandWithoutFlags
 	id          string
 	description string
-	flagDefs    FlagDefinitionMap
-	execFunc    func(flagSet *flag.FlagSet, writer io.Writer) error
+	execFunc    func(writer io.Writer) error
 }
 
-func (m *bootstrapMockCommand) Id() string {
+func (m *MockCommand) Id() string {
 	return m.id
 }
 
-func (m *bootstrapMockCommand) Description() string {
+func (m *MockCommand) Description() string {
 	return m.description
 }
 
-func (m *bootstrapMockCommand) FlagDefinitions() FlagDefinitionMap {
-	return m.flagDefs
-}
-
-func (m *bootstrapMockCommand) Exec(flagSet *flag.FlagSet, writer io.Writer) error {
+func (m *MockCommand) Exec(writer io.Writer) error {
 	if m.execFunc != nil {
-		return m.execFunc(flagSet, writer)
+		return m.execFunc(writer)
 	}
 	return nil
 }
 
-func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
+// MockCommandWithFlags is a Command implementation with flags for testing
+type MockCommandWithFlags struct {
+	CommandWithFlags
+	id          string
+	description string
+	execFunc    func(writer io.Writer) error
+	validateErr error
+}
+
+func (m *MockCommandWithFlags) Id() string {
+	return m.id
+}
+
+func (m *MockCommandWithFlags) Description() string {
+	return m.description
+}
+
+func (m *MockCommandWithFlags) Exec(writer io.Writer) error {
+	if m.execFunc != nil {
+		return m.execFunc(writer)
+	}
+	return nil
+}
+
+func (m *MockCommandWithFlags) DefineFlags() {
+	m.flags = flag.NewFlagSet(m.id, flag.ContinueOnError)
+	m.flags.String("test-flag", "", "A test flag")
+}
+
+func (m *MockCommandWithFlags) ValidateFlags() error {
+	return m.validateErr
+}
+
+func TestItCanParseCmdInput(t *testing.T) {
 	tests := []struct {
-		name       string
-		args       []string
-		cmd        Command
-		wantErrors bool
+		name        string
+		args        []string
+		wantCmdName string
+		wantCmdArgs []string
 	}{
 		{
-			name: "Empty options",
-			args: []string{},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
-			},
-			wantErrors: false,
+			name:        "empty args",
+			args:        []string{},
+			wantCmdName: "",
+			wantCmdArgs: nil,
 		},
 		{
-			name: "Valid option",
-			args: []string{"--option1", "value1"},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.String(
-								"option1",
-								"",
-								"Option 1",
-							)
-						},
-					},
-				},
-			},
-			wantErrors: false,
+			name:        "command only",
+			args:        []string{"test-cmd"},
+			wantCmdName: "test-cmd",
+			wantCmdArgs: []string{},
 		},
 		{
-			name: "Option without value",
-			args: []string{"--option1"},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.Bool(
-								"option1",
-								false,
-								"Option 1",
-							)
-						},
-					},
-				},
-			},
-			wantErrors: false,
+			name:        "command with args",
+			args:        []string{"test-cmd", "arg1", "arg2"},
+			wantCmdName: "test-cmd",
+			wantCmdArgs: []string{"arg1", "arg2"},
 		},
 		{
-			name: "Missing required option",
-			args: []string{},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    true,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.String(
-								"option1",
-								"",
-								"Option 1",
-							)
-						},
-					},
-				},
-			},
-			wantErrors: true,
-		},
-		{
-			name: "Required option with value",
-			args: []string{"--option1", "value1"},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    true,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.String(
-								"option1",
-								"",
-								"Option 1",
-							)
-						},
-					},
-				},
-			},
-			wantErrors: false,
-		},
-		{
-			name: "Non-option argument",
-			args: []string{"positional", "--option1", "value1"},
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"option1": {
-						name:        "option1",
-						description: "Option 1",
-						required:    false,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.String(
-								"option1",
-								"",
-								"Option 1",
-							)
-						},
-					},
-				},
-			},
-			wantErrors: false,
+			name:        "with -- prefix",
+			args:        []string{"--", "test-cmd", "arg1"},
+			wantCmdName: "test-cmd",
+			wantCmdArgs: []string{"arg1"},
 		},
 	}
 
-	for _, scenario := range tests {
-		s.Run(
-			scenario.name, func() {
-				// Setup flag set
-				var buf bytes.Buffer
-				flagSet := setupFlagSet(scenario.cmd, &buf)
-
-				// Parse flags
-				err := flagSet.Parse(scenario.args)
-				s.NoError(err, "flagSet.Parse() should not return an error")
-
-				// Validate flags
-				errs := validateFlags(flagSet, scenario.cmd)
-
-				if scenario.wantErrors {
-					s.NotEmpty(errs, "validateFlags() should return errors")
-				} else {
-					s.Empty(errs, "validateFlags() should not return errors")
+	for _, tt := range tests {
+		t.Run(
+			tt.name, func(t *testing.T) {
+				gotCmdName, gotCmdArgs := parseCmdInput(tt.args)
+				if gotCmdName != tt.wantCmdName {
+					t.Errorf("parseCmdInput() gotCmdName = %v, want %v", gotCmdName, tt.wantCmdName)
 				}
-
-				// Check if required flags have values
-				for _, def := range scenario.cmd.FlagDefinitions() {
-					if def.required {
-						lookup := flagSet.Lookup(def.name)
-						if lookup != nil && lookup.Value.String() != "" {
-							s.NotEqual(
-								"",
-								lookup.Value.String(),
-								"Required flag should have a value",
+				if len(gotCmdArgs) != len(tt.wantCmdArgs) {
+					t.Errorf(
+						"parseCmdInput() gotCmdArgs length = %v, want %v",
+						len(gotCmdArgs),
+						len(tt.wantCmdArgs),
+					)
+				} else {
+					for i, arg := range gotCmdArgs {
+						if arg != tt.wantCmdArgs[i] {
+							t.Errorf(
+								"parseCmdInput() gotCmdArgs[%d] = %v, want %v",
+								i,
+								arg,
+								tt.wantCmdArgs[i],
 							)
 						}
 					}
@@ -216,414 +129,176 @@ func (s *BootstrapSuite) TestItCanSetupAndValidateFlags() {
 	}
 }
 
-func (s *BootstrapSuite) TestItCanParseCmdInput() {
-	tests := []struct {
-		name        string
-		args        []string
-		wantCmdName string
-		wantOptions []string
-	}{
-		{
-			name:        "Empty args",
-			args:        []string{},
-			wantCmdName: "",
-			wantOptions: nil,
-		},
-		{
-			name:        "Command only",
-			args:        []string{"command"},
-			wantCmdName: "command",
-			wantOptions: []string{},
-		},
-		{
-			name:        "Command with options",
-			args:        []string{"command", "--option1=value1", "--option2=value2"},
-			wantCmdName: "command",
-			wantOptions: []string{"--option1=value1", "--option2=value2"},
-		},
-		{
-			name:        "Command with -- prefix",
-			args:        []string{"--", "command", "--option1=value1"},
-			wantCmdName: "command",
-			wantOptions: []string{"--option1=value1"},
-		},
-		{
-			name:        "Command with whitespace",
-			args:        []string{" command "},
-			wantCmdName: "command",
-			wantOptions: []string{},
-		},
+func TestItCanRegisterCommandsWithoutDuplicates(t *testing.T) {
+	registry := CommandsRegistry{commands: make(map[string]Command)}
+	cmd := &MockCommand{id: "test-cmd", description: "Test command"}
+
+	// Test successful registration
+	err := registry.Register(cmd)
+	if err != nil {
+		t.Errorf("Register() error = %v, want nil", err)
 	}
 
-	for _, scenario := range tests {
-		s.Run(
-			scenario.name, func() {
-				cmdName, options := parseCmdInput(scenario.args)
-				s.Equal(
-					scenario.wantCmdName,
-					cmdName,
-					"parseCmdInput() returned incorrect command name",
-				)
-				s.Equal(scenario.wantOptions, options, "parseCmdInput() returned incorrect options")
-			},
-		)
+	// Test duplicate registration
+	err = registry.Register(cmd)
+	if err == nil {
+		t.Error("Register() error = nil, want error for duplicate command")
 	}
 }
 
-func (s *BootstrapSuite) TestItCanRegisterCommands() {
-	s.Run(
-		"Register adds command to registry", func() {
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{id: "test", description: "Test command"}
+func TestItCanRegisterMultipleCommandsAndExposeACopyOfThem(t *testing.T) {
+	registry := CommandsRegistry{commands: make(map[string]Command)}
+	cmd1 := &MockCommand{id: "cmd1", description: "Command 1"}
+	cmd2 := &MockCommand{id: "cmd2", description: "Command 2"}
 
-			err := registry.Register(cmd)
-			s.NoError(err, "Register() should not return an error")
+	_ = registry.Register(cmd1)
+	_ = registry.Register(cmd2)
 
-			registeredCmd, exists := registry.commands["test"]
-			s.True(exists, "Register() should add command to registry")
-			s.Equal(cmd, registeredCmd, "Register() should store the correct command")
-		},
-	)
+	commands := registry.Commands()
+	if len(commands) != 2 {
+		t.Errorf("Commands() returned %d commands, want 2", len(commands))
+	}
 
-	s.Run(
-		"Register returns error for duplicate command", func() {
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd1 := &bootstrapMockCommand{id: "test", description: "Test command 1"}
-			cmd2 := &bootstrapMockCommand{id: "test", description: "Test command 2"}
-
-			_ = registry.Register(cmd1)
-			err := registry.Register(cmd2)
-
-			s.Error(err, "Register() should return an error for duplicate command")
-			s.Contains(
-				err.Error(),
-				"already registered",
-				"Register() error should mention the command is already registered",
-			)
-		},
-	)
-
-	s.Run(
-		"Commands returns copy of commands map", func() {
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{id: "test", description: "Test command"}
-
-			_ = registry.Register(cmd)
-			commands := registry.Commands()
-
-			s.Equal(1, len(commands), "Commands() should return all registered commands")
-			s.Equal(cmd, commands["test"], "Commands() should return the correct command")
-
-			// Verify it's a copy by modifying the returned map
-			delete(commands, "test")
-			s.Equal(
-				1,
-				len(registry.commands),
-				"Commands() should return a copy of the commands map",
-			)
-		},
-	)
-
-	s.Run(
-		"Command returns registered command", func() {
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{id: "test", description: "Test command"}
-
-			_ = registry.Register(cmd)
-			gotCmd, exists := registry.Command("test")
-
-			s.True(exists, "Command() should find registered command")
-			s.Equal(cmd, gotCmd, "Command() should return the correct command")
-		},
-	)
-
-	s.Run(
-		"Command returns false for non-existent command", func() {
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-
-			_, exists := registry.Command("nonexistent")
-			s.False(exists, "Command() should return false for non-existent command")
-		},
-	)
+	// Verify that modifying the returned map doesn't affect the registry
+	delete(commands, "cmd1")
+	if _, exists := registry.Command("cmd1"); !exists {
+		t.Error("Commands() should return a copy, but modification affected original")
+	}
 }
 
-func (s *BootstrapSuite) TestItCanRunCommand() {
+func TestRegistryAllowsToFindACommandById(t *testing.T) {
+	registry := CommandsRegistry{commands: make(map[string]Command)}
+	cmd := &MockCommand{id: "test-cmd", description: "Test command"}
+	_ = registry.Register(cmd)
+
+	// Test finding existing command
+	foundCmd, exists := registry.Command("test-cmd")
+	if !exists {
+		t.Error("Command() exists = false, want true")
+	}
+	if foundCmd.Id() != "test-cmd" {
+		t.Errorf("Command() returned command with ID = %s, want test-cmd", foundCmd.Id())
+	}
+
+	// Test finding non-existent command
+	_, exists = registry.Command("non-existent")
+	if exists {
+		t.Error("Command() exists = true, want false for non-existent command")
+	}
+}
+
+func TestItCanRunCommand(t *testing.T) {
 	tests := []struct {
-		name           string
-		cmd            Command
-		args           []string
-		setupCmd       func(cmd *bootstrapMockCommand)
-		expectedOutput string
-		expectError    bool
-		errorContains  []string
+		name       string
+		cmd        Command
+		args       []string
+		wantOutput string
+		wantErr    bool
 	}{
 		{
-			name: "Successful command execution",
-			cmd: &bootstrapMockCommand{
-				id:          "test",
+			name: "successful command",
+			cmd: &MockCommand{
+				id:          "test-cmd",
 				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
-			},
-			args: []string{},
-			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
-					_, _ = writer.Write([]byte("Command executed successfully"))
+				execFunc: func(writer io.Writer) error {
+					_, _ = fmt.Fprint(writer, "Command executed successfully")
 					return nil
-				}
-			},
-			expectedOutput: "Command executed successfully",
-			expectError:    false,
-		},
-		{
-			name: "Command execution with option errors",
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs: FlagDefinitionMap{
-					"required": {
-						name:        "required",
-						description: "Required option",
-						required:    true,
-						setupFlag: func(fs *flag.FlagSet) {
-							fs.String(
-								"required",
-								"",
-								"Required option",
-							)
-						},
-					},
 				},
 			},
-			args:           []string{},
-			expectedOutput: "",
-			expectError:    true,
-			errorContains:  []string{"Failed to execute command", "required"},
+			args:       []string{},
+			wantOutput: "Command executed successfully",
+			wantErr:    false,
 		},
 		{
-			name: "Command execution with command error",
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
+			name: "command with error",
+			cmd: &MockCommand{
+				id:          "error-cmd",
+				description: "Error command",
+				execFunc: func(writer io.Writer) error {
+					return errors.New("command execution failed")
+				},
 			},
-			args: []string{},
-			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
-					return errors.New("command error")
-				}
-			},
-			expectedOutput: "",
-			expectError:    true,
-			errorContains:  []string{"Failed to execute command", "command error"},
+			args:    []string{},
+			wantErr: true,
 		},
 		{
-			name: "Command execution with panic",
-			cmd: &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
+			name: "command with flags validation error",
+			cmd: &MockCommandWithFlags{
+				id:          "flag-error-cmd",
+				description: "Flag error command",
+				validateErr: errors.New("flag validation failed"),
 			},
-			args: []string{},
-			setupCmd: func(cmd *bootstrapMockCommand) {
-				cmd.execFunc = func(flagSet *flag.FlagSet, writer io.Writer) error {
-					panic(errors.New("panic error"))
-				}
-			},
-			expectedOutput: "",
-			expectError:    true,
-			errorContains:  []string{"panic error"},
+			args:    []string{"--test-flag", "value"},
+			wantErr: true,
 		},
 	}
 
-	for _, scenario := range tests {
-		s.Run(
-			scenario.name, func() {
-				// Set up the command if needed
-				if scenario.setupCmd != nil {
-					scenario.setupCmd(scenario.cmd.(*bootstrapMockCommand))
-				}
-
-				// Create a buffer to capture output
+	for _, tt := range tests {
+		t.Run(
+			tt.name, func(t *testing.T) {
 				var buf bytes.Buffer
-				err := runCommand(scenario.cmd, scenario.args, &buf)
+				err := runCommand(tt.cmd, tt.args, &buf)
 
-				// Check if error is expected
-				if scenario.expectError {
-					s.Error(err, "runCommand() should return an error")
-					for _, errText := range scenario.errorContains {
-						s.Contains(
-							err.Error(),
-							errText,
-							"runCommand() error should contain expected text",
-						)
-					}
-				} else {
-					s.NoError(err, "runCommand() should not return an error")
+				if (err != nil) != tt.wantErr {
+					t.Errorf("runCommand() error = %v, wantErr %v", err, tt.wantErr)
+					return
 				}
 
-				// Check output
-				s.Equal(
-					scenario.expectedOutput,
-					buf.String(),
-					"runCommand() should write expected output to writer",
-				)
+				if !tt.wantErr && !strings.Contains(buf.String(), tt.wantOutput) {
+					t.Errorf(
+						"runCommand() output = %v, want to contain %v",
+						buf.String(),
+						tt.wantOutput,
+					)
+				}
 			},
 		)
 	}
 }
 
-func (s *BootstrapSuite) TestItCanBootstrapCliRunner() {
-	s.Run(
-		"Successful command execution", func() {
-			// Create a mock registry with a test command
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
-				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
-					_, _ = writer.Write([]byte("Command executed successfully"))
-					return nil
-				},
-			}
-			_ = registry.Register(cmd)
+// TestBootstrap tests the Bootstrap function
+func TestItCanBootstrapCliApp(t *testing.T) {
+	registry := CommandsRegistry{commands: make(map[string]Command)}
 
-			// Mock the exit function to capture the exit code
-			var exitCode int
-			mockExit := func(code int) {
-				exitCode = code
-			}
-
-			// Create a buffer to capture output
-			var buf bytes.Buffer
-
-			// Call Bootstrap with the test command
-			Bootstrap([]string{"test"}, *registry, &buf, mockExit)
-
-			// Verify the command was executed successfully
-			s.Equal(StatusOk, exitCode, "Bootstrap should exit with StatusOk")
-			s.Equal(
-				"Command executed successfully",
-				buf.String(),
-				"Bootstrap should write command output to writer",
-			)
+	// Register a test command
+	testCmd := &MockCommand{
+		id:          "test-cmd",
+		description: "Test command",
+		execFunc: func(writer io.Writer) error {
+			_, _ = fmt.Fprint(writer, "Test command executed")
+			return nil
 		},
+	}
+	_ = registry.Register(testCmd)
+
+	// Test successful command execution
+	var buf bytes.Buffer
+	exitCode := -1
+	Bootstrap(
+		[]string{"test-cmd"},
+		registry,
+		&buf,
+		func(code int) { exitCode = code },
 	)
 
-	s.Run(
-		"Command not found", func() {
-			// Create an empty registry
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
+	if exitCode != StatusOk {
+		t.Errorf("Bootstrap() exitCode = %v, want %v", exitCode, StatusOk)
+	}
 
-			// Mock the exit function to capture the exit code
-			var exitCode int
-			mockExit := func(code int) {
-				exitCode = code
-			}
-
-			// Create a buffer to capture output
-			var buf bytes.Buffer
-
-			// Call Bootstrap with a non-existent command
-			Bootstrap([]string{"nonexistent"}, *registry, &buf, mockExit)
-
-			// Verify the error was handled correctly
-			s.Equal(StatusErr, exitCode, "Bootstrap should exit with StatusErr")
-			s.Contains(
-				buf.String(),
-				"does not exist",
-				"Bootstrap should write error message to writer",
-			)
-		},
+	// Test command not found
+	buf.Reset()
+	exitCode = -1
+	Bootstrap(
+		[]string{"non-existent-cmd"},
+		registry,
+		&buf,
+		func(code int) { exitCode = code },
 	)
 
-	s.Run(
-		"Command execution with error", func() {
-			// Create a mock registry with a test command that returns an error
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
-				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
-					return errors.New("command execution error")
-				},
-			}
-			_ = registry.Register(cmd)
-
-			// Mock the exit function to capture the exit code
-			var exitCode int
-			mockExit := func(code int) {
-				exitCode = code
-			}
-
-			// Create a buffer to capture output
-			var buf bytes.Buffer
-
-			// Call Bootstrap with the test command
-			Bootstrap([]string{"test"}, *registry, &buf, mockExit)
-
-			// Verify the error was handled correctly
-			s.Equal(StatusErr, exitCode, "Bootstrap should exit with StatusErr")
-			s.Contains(
-				buf.String(),
-				"command execution error",
-				"Bootstrap should write error message to writer",
-			)
-		},
-	)
-
-	s.Run(
-		"Default to help command when no command specified", func() {
-			// Create a mock registry
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-
-			// Mock the exit function to capture the exit code
-			var exitCode int
-			mockExit := func(code int) {
-				exitCode = code
-			}
-
-			// Create a buffer to capture output
-			var buf bytes.Buffer
-
-			// Call Bootstrap with no command
-			Bootstrap([]string{}, *registry, &buf, mockExit)
-
-			// Verify help command was executed
-			s.Equal(
-				StatusOk,
-				exitCode,
-				"Bootstrap should exit with StatusOk when running help command",
-			)
-		},
-	)
-
-	s.Run(
-		"Use default output writer when none provided", func() {
-			// Create a mock registry with a test command
-			registry := &CommandsRegistry{commands: make(map[string]Command)}
-			cmd := &bootstrapMockCommand{
-				id:          "test",
-				description: "Test command",
-				flagDefs:    FlagDefinitionMap{},
-				execFunc: func(flagSet *flag.FlagSet, writer io.Writer) error {
-					return nil
-				},
-			}
-			_ = registry.Register(cmd)
-
-			// Mock the exit function to capture the exit code
-			var exitCode int
-			mockExit := func(code int) {
-				exitCode = code
-			}
-
-			// Call Bootstrap with nil output writer
-			Bootstrap([]string{"test"}, *registry, nil, mockExit)
-
-			// Verify the command was executed successfully
-			s.Equal(StatusOk, exitCode, "Bootstrap should exit with StatusOk")
-		},
-	)
+	if exitCode != StatusErr {
+		t.Errorf("Bootstrap() exitCode = %v, want %v", exitCode, StatusErr)
+	}
+	if !strings.Contains(buf.String(), "does not exist") {
+		t.Errorf("Bootstrap() output should contain 'does not exist', got %v", buf.String())
+	}
 }

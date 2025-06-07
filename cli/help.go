@@ -9,6 +9,7 @@ import (
 )
 
 type HelpCommand struct {
+	CommandWithoutFlags
 	availableCommands []Command
 }
 
@@ -20,11 +21,7 @@ func (c *HelpCommand) Description() string {
 	return "Lists all available commands"
 }
 
-func (c *HelpCommand) FlagDefinitions() FlagDefinitionMap {
-	return FlagDefinitionMap{}
-}
-
-func (c *HelpCommand) Exec(_ *flag.FlagSet, baseWriter io.Writer) error {
+func (c *HelpCommand) Exec(baseWriter io.Writer) error {
 	writer := tabwriter.NewWriter(baseWriter, 0, 0, 1, ' ', 0)
 	_, _ = fmt.Fprintln(writer, c.Id()+"\tAvailable CLI Commands:")
 
@@ -39,17 +36,21 @@ func (c *HelpCommand) Exec(_ *flag.FlagSet, baseWriter io.Writer) error {
 			}
 		}
 
-		if len(command.FlagDefinitions()) > 0 {
-			_, _ = fmt.Fprintln(writer, "\tOptions:")
-			for _, def := range command.FlagDefinitions() {
-				_, _ = fmt.Fprintf(
-					writer,
-					"\t--%s %s (default %s)\n",
-					def.name,
-					def.description,
-					def.defaultVal,
-				)
-			}
+		if command.Flags() != nil {
+			_, _ = fmt.Fprintln(writer, "\tFlags:")
+			command.Flags().VisitAll(
+				func(flag *flag.Flag) {
+					if flag != nil {
+						_, _ = fmt.Fprintf(
+							writer,
+							"\t--%s %s (default %s)\n",
+							flag.Name,
+							flag.Usage,
+							flag.DefValue,
+						)
+					}
+				},
+			)
 		}
 	}
 	_ = writer.Flush()

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,54 +14,32 @@ import (
 const StatusOk = 0
 const StatusErr = 1
 
-// FlagDefinition represents a command-line flag definition
-type FlagDefinition struct {
-	name        string
-	description string
-	required    bool
-	defaultVal  string
-	setupFlag   func(*flag.FlagSet)
-}
-
-func NewFlagDefinition(
-	name string,
-	description string,
-	required bool,
-	defaultVal string,
-	setupFlag func(*flag.FlagSet),
-) FlagDefinition {
-	return FlagDefinition{name, description, required, defaultVal, setupFlag}
-}
-
-// Name returns the name of the flag
-func (def FlagDefinition) Name() string {
-	return def.name
-}
-
-// Description returns the description of the flag
-func (def FlagDefinition) Description() string {
-	return def.description
-}
-
-// Required returns whether the flag is required
-func (def FlagDefinition) Required() bool {
-	return def.required
-}
-
-// DefaultValue returns the default value of the flag
-func (def FlagDefinition) DefaultValue() string {
-	return def.defaultVal
-}
-
-// FlagDefinitionMap is a map of flag names to their definitions
-type FlagDefinitionMap map[string]FlagDefinition
-
 // Command interface defines the methods that a command must implement
 type Command interface {
 	Id() string
 	Description() string
-	Exec(flagSet *flag.FlagSet, stdWriter io.Writer) error
-	FlagDefinitions() FlagDefinitionMap
+	Exec(stdWriter io.Writer) error
+	Flags() *flag.FlagSet
+	DefineFlags()
+	ValidateFlags() error
+}
+
+type CommandWithoutFlags struct{}
+
+func (*CommandWithoutFlags) Flags() *flag.FlagSet {
+	return nil
+}
+func (*CommandWithoutFlags) DefineFlags() {}
+func (*CommandWithoutFlags) ValidateFlags() error {
+	return nil
+}
+
+type CommandWithFlags struct {
+	flags *flag.FlagSet
+}
+
+func (c *CommandWithFlags) Flags() *flag.FlagSet {
+	return c.flags
 }
 
 // setupFlagSet creates and configures a flag.FlagSet for the given command
@@ -73,32 +50,7 @@ func setupFlagSet(cmd Command, outputWriter io.Writer) *flag.FlagSet {
 		flagSet.PrintDefaults()
 	}
 
-	// Add flags based on command's flag definitions
-	for _, def := range cmd.FlagDefinitions() {
-		def.setupFlag(flagSet)
-	}
-
 	return flagSet
-}
-
-// validateFlags checks if all required flags are provided
-func validateFlags(flagSet *flag.FlagSet, cmd Command) []error {
-	var flagErrors []error
-
-	// Check for required flags
-	for _, def := range cmd.FlagDefinitions() {
-		if def.required {
-			lookup := flagSet.Lookup(def.name)
-			if lookup == nil || lookup.Value.String() == "" {
-				flagErrors = append(
-					flagErrors,
-					fmt.Errorf("flag '%s' is required", def.name),
-				)
-			}
-		}
-	}
-
-	return flagErrors
 }
 
 // runCommand runs the given command with the provided arguments
@@ -112,9 +64,21 @@ func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr erro
 	// Setup flag set for the command
 	flagSet := setupFlagSet(cmd, outputWriter)
 	flagSet.SetOutput(outputWriter)
+	cmd.DefineFlags()
 
 	// Parse flags
-	if err := flagSet.Parse(args); err != nil {
+	if !flagSet.Parsed() {
+		if err := flagSet.Parse(args); err != nil {
+			return fmt.Errorf(
+				"Failed to execute command %s with error: %s\n",
+				cmd.Id(),
+				err.Error(),
+			)
+		}
+	}
+
+	err := cmd.ValidateFlags()
+	if err != nil {
 		return fmt.Errorf(
 			"Failed to execute command %s with error: %s\n",
 			cmd.Id(),
@@ -122,17 +86,8 @@ func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr erro
 		)
 	}
 
-	// Validate required flags
-	if errs := validateFlags(flagSet, cmd); len(errs) > 0 {
-		return fmt.Errorf(
-			"Failed to execute command %s with error: %s\n",
-			cmd.Id(),
-			errors.Join(errs...).Error(),
-		)
-	}
-
 	// Execute the command
-	if cmdErr = cmd.Exec(flagSet, outputWriter); cmdErr != nil {
+	if cmdErr = cmd.Exec(outputWriter); cmdErr != nil {
 		return fmt.Errorf(
 			"Failed to execute command %s with error: %s\n",
 			cmd.Id(),
@@ -206,7 +161,15 @@ func Bootstrap(
 	}
 
 	_ = availableCommands.Register(
-		&HelpCommand{slices.Collect(maps.Values(availableCommands.Commands()))},
+		&HelpCommand{
+			CommandWithoutFlags{},
+			slices.Collect(
+				maps.Values(
+					availableCommands.
+						Commands(),
+				),
+			),
+		},
 	)
 	cmdId, cmdArgs := parseCmdInput(args)
 	if cmdId == "" {

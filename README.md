@@ -50,6 +50,7 @@ func (c *GreetCommand) FlagDefinitions() cli.FlagDefinitionMap {
 			"name",
 			"Name of the person to greet",
 			true,  // required
+			"User",
 			func(fs *flag.FlagSet) {
 				fs.String("name", "", "Name of the person to greet")
 			},
@@ -58,6 +59,7 @@ func (c *GreetCommand) FlagDefinitions() cli.FlagDefinitionMap {
 			"message",
 			"Custom greeting message",
 			false, // optional
+			"Hello",
 			func(fs *flag.FlagSet) {
 				fs.String("message", "Hello", "Custom greeting message")
 			},
@@ -66,6 +68,7 @@ func (c *GreetCommand) FlagDefinitions() cli.FlagDefinitionMap {
 			"enabled",
 			"Is enabled",
 			false, // optional
+			"true",
 			func(fs *flag.FlagSet) {
 				fs.Bool("message", true, "Custom greeting message")
 			},

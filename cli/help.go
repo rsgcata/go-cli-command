@@ -13,6 +13,10 @@ type HelpCommand struct {
 	availableCommands []Command
 }
 
+func NewHelpCommand(availableCommands []Command) *HelpCommand {
+	return &HelpCommand{availableCommands: availableCommands}
+}
+
 func (c *HelpCommand) Id() string {
 	return "help"
 }

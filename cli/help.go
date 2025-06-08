@@ -22,11 +22,13 @@ func (c *HelpCommand) Description() string {
 }
 
 func (c *HelpCommand) Exec(baseWriter io.Writer) error {
-	writer := tabwriter.NewWriter(baseWriter, 0, 0, 1, ' ', 0)
-	_, _ = fmt.Fprintln(writer, c.Id()+"\tAvailable CLI Commands:")
+	writer := tabwriter.NewWriter(baseWriter, 0, 0, 4, ' ', 0)
+	_, _ = fmt.Fprintln(writer, "\t")
+	_, _ = fmt.Fprintln(writer, c.Id()+"\t"+c.Description())
+	_, _ = fmt.Fprintln(writer, "\t")
 
 	for _, command := range c.availableCommands {
-		_, _ = fmt.Fprintln(writer, "_________\t")
+		_, _ = fmt.Fprintln(writer, "\t")
 
 		descChunks := chunkDescription(command.Description(), 80)
 		_, _ = fmt.Fprintln(writer, command.Id()+"\t"+descChunks[0])
@@ -36,13 +38,17 @@ func (c *HelpCommand) Exec(baseWriter io.Writer) error {
 			}
 		}
 
-		if command.Flags() != nil {
-			_, _ = fmt.Fprintln(writer, "\tFlags:")
-			command.Flags().VisitAll(
+		cmdFlagSet := setupFlagSet(command, writer)
+		if cmdFlagSet != nil {
+			command.DefineFlags(cmdFlagSet)
+			countFlags := 0
+			flagsListOutput := ""
+
+			cmdFlagSet.VisitAll(
 				func(flag *flag.Flag) {
 					if flag != nil {
-						_, _ = fmt.Fprintf(
-							writer,
+						countFlags++
+						flagsListOutput += fmt.Sprintf(
 							"\t--%s %s (default %s)\n",
 							flag.Name,
 							flag.Usage,
@@ -51,7 +57,16 @@ func (c *HelpCommand) Exec(baseWriter io.Writer) error {
 					}
 				},
 			)
+
+			if countFlags > 0 {
+				_, _ = fmt.Fprintln(writer, "\tFlags:")
+				_, _ = fmt.Fprint(writer, flagsListOutput)
+			} else {
+				_, _ = fmt.Fprintln(writer, "\tFlags: none")
+			}
 		}
+
+		_, _ = fmt.Fprintln(writer, "\t")
 	}
 	_ = writer.Flush()
 

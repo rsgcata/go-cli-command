@@ -33,13 +33,13 @@ func (m *MockCommand) Exec(writer io.Writer) error {
 	return nil
 }
 
-// MockCommandWithFlags is a Command implementation with flags for testing
+// MockCommandWithFlags is a Command implementation with flagSet for testing
 type MockCommandWithFlags struct {
-	CommandWithFlags
 	id          string
 	description string
 	execFunc    func(writer io.Writer) error
 	validateErr error
+	flagSet     *flag.FlagSet
 }
 
 func (m *MockCommandWithFlags) Id() string {
@@ -57,9 +57,9 @@ func (m *MockCommandWithFlags) Exec(writer io.Writer) error {
 	return nil
 }
 
-func (m *MockCommandWithFlags) DefineFlags() {
-	m.flags = flag.NewFlagSet(m.id, flag.ContinueOnError)
-	m.flags.String("test-flag", "", "A test flag")
+func (m *MockCommandWithFlags) DefineFlags(flagSet *flag.FlagSet) {
+	m.flagSet = flagSet
+	m.flagSet.String("test-flag", "", "A test flag")
 }
 
 func (m *MockCommandWithFlags) ValidateFlags() error {
@@ -92,10 +92,16 @@ func TestItCanParseCmdInput(t *testing.T) {
 			wantCmdArgs: []string{"arg1", "arg2"},
 		},
 		{
-			name:        "with -- prefix",
+			name:        "with -- prefix and args",
 			args:        []string{"--", "test-cmd", "arg1"},
 			wantCmdName: "test-cmd",
 			wantCmdArgs: []string{"arg1"},
+		},
+		{
+			name:        "with -- prefix and no args",
+			args:        []string{"--"},
+			wantCmdName: "",
+			wantCmdArgs: nil,
 		},
 	}
 
@@ -222,7 +228,7 @@ func TestItCanRunCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "command with flags validation error",
+			name: "command with flagSet validation error",
 			cmd: &MockCommandWithFlags{
 				id:          "flag-error-cmd",
 				description: "Flag error command",
@@ -276,7 +282,7 @@ func TestItCanBootstrapCliApp(t *testing.T) {
 	exitCode := -1
 	Bootstrap(
 		[]string{"test-cmd"},
-		registry,
+		&registry,
 		&buf,
 		func(code int) { exitCode = code },
 	)
@@ -290,7 +296,7 @@ func TestItCanBootstrapCliApp(t *testing.T) {
 	exitCode = -1
 	Bootstrap(
 		[]string{"non-existent-cmd"},
-		registry,
+		&registry,
 		&buf,
 		func(code int) { exitCode = code },
 	)

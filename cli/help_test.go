@@ -13,13 +13,11 @@ func TestItCanDisplayHelpfulInformationAboutAvailableCommands(t *testing.T) {
 		description: "Test command description",
 	}
 
-	// Create a mock command with flags
+	// Create a mock command with flagSet
 	mockCmdWithFlags := &MockCommandWithFlags{
 		id:          "flag-cmd",
-		description: "Command with flags",
+		description: "Command with flagSet",
 	}
-	mockCmdWithFlags.flags = setupFlagSet(mockCmdWithFlags, nil)
-	mockCmdWithFlags.DefineFlags()
 
 	// Create help command with the mock commands
 	helpCmd := &HelpCommand{
@@ -51,7 +49,7 @@ func TestItCanDisplayHelpfulInformationAboutAvailableCommands(t *testing.T) {
 	if !strings.Contains(output, "Test command description") {
 		t.Errorf("Help output doesn't contain the test command description")
 	}
-	if !strings.Contains(output, "Command with flags") {
+	if !strings.Contains(output, "Command with flagSet") {
 		t.Errorf("Help output doesn't contain the flag command description")
 	}
 

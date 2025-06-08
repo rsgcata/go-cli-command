@@ -19,27 +19,15 @@ type Command interface {
 	Id() string
 	Description() string
 	Exec(stdWriter io.Writer) error
-	Flags() *flag.FlagSet
-	DefineFlags()
+	DefineFlags(flagSet *flag.FlagSet)
 	ValidateFlags() error
 }
 
 type CommandWithoutFlags struct{}
 
-func (*CommandWithoutFlags) Flags() *flag.FlagSet {
-	return nil
-}
-func (*CommandWithoutFlags) DefineFlags() {}
+func (*CommandWithoutFlags) DefineFlags(*flag.FlagSet) {}
 func (*CommandWithoutFlags) ValidateFlags() error {
 	return nil
-}
-
-type CommandWithFlags struct {
-	flags *flag.FlagSet
-}
-
-func (c *CommandWithFlags) Flags() *flag.FlagSet {
-	return c.flags
 }
 
 // setupFlagSet creates and configures a flag.FlagSet for the given command
@@ -64,35 +52,23 @@ func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr erro
 	// Setup flag set for the command
 	flagSet := setupFlagSet(cmd, outputWriter)
 	flagSet.SetOutput(outputWriter)
-	cmd.DefineFlags()
+	cmd.DefineFlags(flagSet)
 
-	// Parse flags
+	// Parse flagSet
 	if !flagSet.Parsed() {
-		if err := flagSet.Parse(args); err != nil {
-			return fmt.Errorf(
-				"Failed to execute command %s with error: %s\n",
-				cmd.Id(),
-				err.Error(),
-			)
+		if cmdErr = flagSet.Parse(args); cmdErr != nil {
+			return cmdErr
 		}
 	}
 
-	err := cmd.ValidateFlags()
-	if err != nil {
-		return fmt.Errorf(
-			"Failed to execute command %s with error: %s\n",
-			cmd.Id(),
-			err.Error(),
-		)
+	cmdErr = cmd.ValidateFlags()
+	if cmdErr != nil {
+		return cmdErr
 	}
 
 	// Execute the command
 	if cmdErr = cmd.Exec(outputWriter); cmdErr != nil {
-		return fmt.Errorf(
-			"Failed to execute command %s with error: %s\n",
-			cmd.Id(),
-			cmdErr.Error(),
-		)
+		return cmdErr
 	}
 
 	return cmdErr
@@ -100,10 +76,10 @@ func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr erro
 
 // parseCmdInput parses the command name and arguments from the input args
 func parseCmdInput(args []string) (cmdName string, cmdArgs []string) {
-	if len(args) > 1 {
-		if args[0] == "--" {
-			args = args[1:]
-		}
+	if len(args) == 0 {
+		return
+	} else if args[0] == "--" {
+		args = args[1:]
 	}
 
 	if len(args) != 0 {
@@ -117,6 +93,10 @@ func parseCmdInput(args []string) (cmdName string, cmdArgs []string) {
 // CommandsRegistry holds all registered commands
 type CommandsRegistry struct {
 	commands map[string]Command
+}
+
+func NewCommandsRegistry() *CommandsRegistry {
+	return &CommandsRegistry{make(map[string]Command)}
 }
 
 // Register adds a command to the registry
@@ -148,7 +128,7 @@ func (registry *CommandsRegistry) Command(id string) (Command, bool) {
 // nil is provided for the io.Writer argument.
 func Bootstrap(
 	args []string,
-	availableCommands CommandsRegistry,
+	availableCommands *CommandsRegistry,
 	outputWriter io.Writer,
 	processExit func(code int),
 ) {
@@ -171,6 +151,7 @@ func Bootstrap(
 			),
 		},
 	)
+
 	cmdId, cmdArgs := parseCmdInput(args)
 	if cmdId == "" {
 		cmdId = (&HelpCommand{}).Id()

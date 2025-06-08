@@ -23,6 +23,12 @@ type Command interface {
 	ValidateFlags() error
 }
 
+type LockableCommand interface {
+	Command
+	Lock() (bool, error)
+	Unlock() error
+}
+
 type CommandWithoutFlags struct{}
 
 func (*CommandWithoutFlags) DefineFlags(*flag.FlagSet) {}

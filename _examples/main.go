@@ -77,7 +77,10 @@ func main() {
 	registry := cli.NewCommandsRegistry()
 	availableCommands := []cli.Command{
 		&SayHello{},
-		&SayHelloDynamic{ParsedFlags: &SayHelloFlags{}},
+		cli.NewLockableCommand(
+			&SayHelloDynamic{ParsedFlags: &SayHelloFlags{}},
+			os.TempDir(),
+		),
 	}
 
 	for _, cmd := range availableCommands {

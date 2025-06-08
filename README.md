@@ -41,28 +41,20 @@ The `Command` interface defines the methods that a command must implement:
 - `DefineFlags(flagSet *flag.FlagSet)`: Define command-specific flags
 - `ValidateFlags() error`: Validate the parsed flags
 
-#### LockableCommand Interface
+#### FsLockableCommand
 
-The `LockableCommand` interface extends the `Command` interface to add locking functionality:
-
-- `Lock() error`: Acquires a lock to prevent concurrent execution of the same command
-
-This is useful for commands that should not be run simultaneously by multiple processes.
-
-#### LockableCommandHelper
-
-A helper struct that implements the `LockableCommand` interface and provides file-based locking.
+A helper struct that implements the `Command` interface and provides file-based locking to prevent concurrent execution of commands.
 
 Example usage:
 
-1. Create a new LockableCommandHelper for a command:
+1. Create a new FsLockableCommand for a command with a directory for the lock file:
    ```
-   lockableCmd := cli.NewLockableCommandHelper(myCommand)
+   lockableCmd := cli.NewLockableCommand(myCommand, os.TempDir())
    ```
 
-2. Or with a custom lock file path:
+2. Or with a custom lock name:
    ```
-   lockableCmd := cli.NewLockableCommandHelperWithPath(myCommand, "/path/to/lock/file")
+   lockableCmd := cli.NewLockableCommandWithLockName(myCommand, os.TempDir(), "custom-lock-name")
    ```
 
 3. Register the helper instead of the original command:
@@ -70,7 +62,7 @@ Example usage:
    registry.Register(lockableCmd)
    ```
 
-The helper uses file locks to ensure that only one instance of the command can run at a time, even across different processes.
+The helper uses file locks to ensure that only one instance of the command can run at a time, even across different processes. When a command is locked, the `Exec` method will return a `CommandLocked` error.
 
 #### CommandWithoutFlags
 

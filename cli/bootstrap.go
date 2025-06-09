@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -51,6 +52,14 @@ func setupFlagSet(cmd Command, outputWriter io.Writer) *flag.FlagSet {
 func runCommand(cmd Command, args []string, outputWriter io.Writer) (cmdErr error) {
 	defer func() {
 		if err := recover(); err != nil {
+			switch v := err.(type) {
+			case string:
+				err = errors.New(v)
+			case error:
+				err = v
+			default:
+				err = errors.New(fmt.Sprint(v))
+			}
 			cmdErr = err.(error)
 		}
 	}()

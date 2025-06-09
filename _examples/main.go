@@ -22,6 +22,7 @@ func (s SayHello) Description() string {
 }
 
 func (s SayHello) Exec(stdWriter io.Writer) error {
+	panic("implement me")
 	_, _ = stdWriter.Write([]byte("Hello there!"))
 	return nil
 }

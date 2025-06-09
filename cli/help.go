@@ -53,11 +53,16 @@ func (c *HelpCommand) Exec(baseWriter io.Writer) error {
 					if flag != nil {
 						countFlags++
 						flagsListOutput += fmt.Sprintf(
-							"\t--%s %s (default %s)\n",
+							"\t--%s (default %s)\n",
 							flag.Name,
-							flag.Usage,
 							flag.DefValue,
 						)
+						usageChunks := chunkDescription(strings.Trim(flag.Usage, "\n "), 80)
+						if len(usageChunks) > 0 {
+							for _, usageChunk := range usageChunks {
+								flagsListOutput += fmt.Sprintf("\t%s\n", usageChunk)
+							}
+						}
 					}
 				},
 			)
